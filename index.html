@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BEACON – offline survival planner</title>
+<style>
+  :root{
+    --bg:#090a09; --panel:#121511; --panel2:#171b15; --line:#283024;
+    --text:#e9eedf; --muted:#9ba592;
+    --green:#8cff3a; --green-dim:#4f8f22;
+    --orange:#ff9f1c; --red:#ff3b3b; --blue:#4fc3ff; --gold:#ffd34d;
+    --street:#30342d; --bld:#121416;
+    --d1:#5a2724; --d2:#8f1111; --zc:#4a0909;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Courier New",monospace;
+    --emoji:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif;
+  }
+  *{box-sizing:border-box}
+  [hidden]{display:none !important}
+  html,body{margin:0}
+  body{
+    background:
+      radial-gradient(1200px 600px at 10% -10%, rgba(140,255,58,.07), transparent 60%),
+      radial-gradient(900px 500px at 110% 110%, rgba(255,59,59,.06), transparent 60%),
+      var(--bg);
+    color:var(--text);
+    font:18px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+    min-height:100vh;
+  }
+  .wrap{max-width:1420px;margin:0 auto;padding:18px 18px 28px}
+
+  /* ---------- header ---------- */
+  .titlerow{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px}
+  h1{
+    margin:0;font-family:var(--mono);text-transform:uppercase;letter-spacing:.06em;
+    font-size:clamp(24px,3.3vw,40px);color:var(--green);
+    text-shadow:0 0 14px rgba(140,255,58,.45);
+  }
+  h1 .sub{color:var(--text);text-shadow:none;font-size:.62em;letter-spacing:.03em;text-transform:none}
+  .badge{
+    border:2px solid var(--green);color:var(--green);border-radius:999px;
+    padding:5px 14px;font-weight:800;font-size:15px;white-space:nowrap;
+    background:rgba(140,255,58,.08);box-shadow:0 0 12px rgba(140,255,58,.25);
+  }
+  .story{margin:8px 0 14px;color:var(--muted);font-size:17px;max-width:900px}
+  .story b{color:var(--text)}
+
+  /* ---------- banners ---------- */
+  .noroute{
+    background:#3a0505;border:3px solid var(--red);color:#fff;border-radius:14px;
+    padding:16px 20px;margin:0 0 14px;font-weight:900;text-align:center;
+    font-size:clamp(20px,3vw,32px);letter-spacing:.02em;
+    box-shadow:0 0 30px rgba(255,59,59,.45);animation:alarm 1.2s ease-in-out infinite;
+  }
+  .horde-banner{
+    position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:60;
+    width:min(92vw,820px);text-align:center;
+    background:#2b0000;border:3px solid var(--red);color:#fff;border-radius:14px;
+    padding:14px 18px;font-weight:900;font-size:clamp(16px,2.3vw,24px);
+    box-shadow:0 0 40px rgba(255,59,59,.65);
+  }
+  #flash{position:fixed;inset:0;background:#ff1a1a;opacity:0;pointer-events:none;z-index:50}
+  #flash.on{animation:flash .75s ease-out}
+
+  /* ---------- layout ---------- */
+  .layout{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(320px,1fr);gap:20px;align-items:start}
+  @media (max-width:920px){ .layout{grid-template-columns:1fr} }
+
+  /* ---------- map ---------- */
+  .map{
+    container-type:inline-size;
+    display:grid;grid-template-columns:repeat(20,1fr);gap:2px;padding:8px;
+    background:#040504;border:2px solid #263021;border-radius:14px;
+    box-shadow:0 0 0 1px #000, inset 0 0 40px rgba(140,255,58,.06);
+  }
+  .cell{
+    position:relative;aspect-ratio:1/1;border-radius:3px;
+    display:flex;align-items:center;justify-content:center;
+    font-family:var(--emoji);line-height:1;user-select:none;-webkit-user-select:none;
+    font-size:min(2vw,22px);font-size:3.2cqi;cursor:pointer;
+    transition:background-color .25s;
+  }
+  .cell.bld{
+    background:
+      linear-gradient(135deg, rgba(255,255,255,.035) 0 25%, transparent 25% 50%, rgba(255,255,255,.035) 50% 75%, transparent 75%),
+      var(--bld);
+    background-size:8px 8px, auto;
+    cursor:not-allowed;
+  }
+  .cell.st{background:var(--street)}
+  .cell.st:hover{outline:2px solid rgba(140,255,58,.6);outline-offset:-2px}
+  .cell.d1{background:var(--d1)}
+  .cell.d2{background:var(--d2)}
+  .cell.zc{background:var(--zc);box-shadow:inset 0 0 0 1px #ff5a5a55}
+  .cell.home{box-shadow:inset 0 0 0 2px var(--green)}
+  .cell.goal{box-shadow:inset 0 0 0 2px var(--green),0 0 14px rgba(140,255,58,.75);animation:beacon 1.6s ease-in-out infinite;z-index:1}
+  .cell.target{box-shadow:inset 0 0 0 2px var(--gold),0 0 14px rgba(255,211,77,.85);z-index:1}
+  .em{position:relative;z-index:2;filter:drop-shadow(0 1px 1px #000)}
+  .zc .em{animation:shamble 2.4s ease-in-out infinite}
+  .drop .em{animation:drop .55s cubic-bezier(.2,1.4,.4,1) both}
+  .dot{
+    position:absolute;z-index:1;width:42%;height:42%;border-radius:50%;
+    background:#7fd8ff;
+    box-shadow:0 0 6px 2px rgba(79,195,255,.95),0 0 16px 5px rgba(79,195,255,.45);
+    animation:pulse 1.8s ease-in-out infinite;
+  }
+  .ghost{
+    position:absolute;z-index:1;width:46%;height:46%;border-radius:50%;
+    border:2px dashed #a7b0ac;opacity:.85;
+  }
+  .flag{position:absolute;z-index:3;top:-12%;right:-10%;font-size:78%;filter:drop-shadow(0 0 3px #000)}
+
+  .hint{margin:10px 2px 8px;color:var(--muted);font-size:16px}
+  .legend{
+    display:flex;flex-wrap:wrap;gap:8px 14px;padding:12px 14px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;font-size:15px;
+  }
+  .legend span{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}
+  .sw{display:inline-block;width:18px;height:18px;border-radius:4px;position:relative;flex:none}
+  .sw.st{background:var(--street)} .sw.bld{background:var(--bld);border:1px solid #2a2e30}
+  .sw.d1{background:var(--d1)} .sw.d2{background:var(--d2)}
+  .sw.dotsw{background:transparent}
+  .sw.dotsw::after{content:"";position:absolute;inset:4px;border-radius:50%;background:#7fd8ff;box-shadow:0 0 6px 2px rgba(79,195,255,.9)}
+  .sw.ghostsw::after{content:"";position:absolute;inset:2px;border-radius:50%;border:2px dashed #a7b0ac}
+  .sw.goldsw{box-shadow:inset 0 0 0 2px var(--gold),0 0 8px rgba(255,211,77,.8)}
+
+  /* ---------- panel ---------- */
+  .actions{display:grid;grid-template-columns:1.4fr 1fr;gap:10px;margin-bottom:14px}
+  .btn{
+    font:inherit;font-weight:900;font-size:19px;padding:15px 12px;border-radius:12px;
+    cursor:pointer;border:2px solid;color:#fff;touch-action:manipulation;
+  }
+  .btn:focus-visible,.mini:focus-visible{outline:3px solid var(--green);outline-offset:2px}
+  .btn-horde{
+    background:linear-gradient(#5a0b0b,#360404);border-color:var(--red);
+    box-shadow:0 0 18px rgba(255,59,59,.45);letter-spacing:.02em;
+  }
+  .btn-horde:hover{box-shadow:0 0 28px rgba(255,59,59,.75)}
+  .btn-horde:active,.btn-reset:active{transform:translateY(1px)}
+  .btn-reset{background:#161a14;border-color:#46523f;color:var(--text)}
+  .btn-reset:hover{border-color:var(--green)}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px}
+  .ct{font-family:var(--mono);font-size:13px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
+  .surv{font-family:var(--mono);font-weight:900;line-height:1;font-size:clamp(60px,7.5vw,92px)}
+  .c-good{color:var(--green);text-shadow:0 0 18px rgba(140,255,58,.4)}
+  .c-warn{color:var(--orange);text-shadow:0 0 18px rgba(255,159,28,.35)}
+  .c-bad{color:var(--red);text-shadow:0 0 18px rgba(255,59,59,.4)}
+  .routeinfo{margin-top:8px;font-size:17px}
+  .compare{
+    margin-top:10px;padding:10px 12px;border-radius:10px;background:var(--panel2);
+    border:1px dashed #6b7470;font-weight:800;font-size:17px;
+  }
+  .decision{font-size:18px;font-weight:700;padding:10px 12px;border-radius:10px;background:var(--panel2);border-left:6px solid var(--green)}
+  .decision.warn{border-left-color:var(--orange)}
+  .decision.bad{border-left-color:var(--red)}
+  .big-bad{color:var(--red);font-weight:900;font-size:clamp(20px,2.4vw,26px);line-height:1.2}
+  .decision .sub{font-weight:600;font-size:16px;color:var(--muted);margin-top:4px}
+
+  .sup-row{display:flex;align-items:center;justify-content:space-between;padding:6px 0}
+  .sup-name{font-size:20px;font-weight:800}
+  .stepper{display:flex;align-items:center;gap:10px}
+  .mini{
+    width:46px;height:46px;border-radius:50%;border:2px solid #46523f;background:#1a1f17;
+    color:var(--text);font:inherit;font-size:26px;font-weight:900;line-height:1;cursor:pointer;touch-action:manipulation;
+  }
+  .mini:hover{border-color:var(--green);color:var(--green)}
+  .sup-val{font-family:var(--mono);font-size:30px;font-weight:900;min-width:2ch;text-align:center}
+  .sup-rule{color:var(--muted);font-size:15px;margin:4px 0 8px}
+  .arrive{font-size:19px;font-weight:800;padding:10px 12px;border-radius:10px;background:var(--panel2)}
+
+  .moves div{padding:8px 0;border-bottom:1px solid var(--line);font-size:17px}
+  .moves div:last-child{border-bottom:0}
+  .moves .meet{color:var(--orange);font-weight:800}
+
+  footer{margin-top:18px;color:var(--muted);font-size:14px;text-align:center}
+
+  .toast{
+    position:fixed;left:50%;bottom:20px;transform:translateX(-50%) translateY(30px);
+    background:#1b2117;border:2px solid var(--green-dim);color:var(--text);
+    padding:12px 18px;border-radius:12px;font-weight:700;font-size:17px;z-index:70;
+    opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;max-width:92vw;text-align:center;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+
+  @media (max-width:600px){
+    body{font-size:17px}
+    .wrap{padding:12px 10px 22px}
+    .map{gap:1px;padding:4px;border-radius:10px}
+    .cell{border-radius:2px}
+    .btn{font-size:17px;padding:14px 8px}
+    .legend{font-size:14px}
+  }
+
+  @keyframes pulse{0%,100%{transform:scale(.8);opacity:.75}50%{transform:scale(1.05);opacity:1}}
+  @keyframes beacon{0%,100%{box-shadow:inset 0 0 0 2px var(--green),0 0 8px rgba(140,255,58,.5)}50%{box-shadow:inset 0 0 0 2px var(--green),0 0 22px rgba(140,255,58,1)}}
+  @keyframes shamble{0%,100%{transform:rotate(-6deg)}50%{transform:rotate(6deg)}}
+  @keyframes drop{0%{transform:translateY(-140%) scale(1.8);opacity:0}100%{transform:none;opacity:1}}
+  @keyframes flash{0%{opacity:.75}100%{opacity:0}}
+  @keyframes alarm{0%,100%{box-shadow:0 0 18px rgba(255,59,59,.35)}50%{box-shadow:0 0 40px rgba(255,59,59,.85)}}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important;transition:none !important}}
+</style>
+</head>
+<body>
+<div id="flash" aria-hidden="true"></div>
+<div id="hordeBanner" class="horde-banner" role="alert" hidden>🚨 HORDE BLOCKS THE SAFE ROUTE – finding alternative...</div>
+
+<div class="wrap">
+  <header>
+    <div class="titlerow">
+      <h1>📡 BEACON <span class="sub">– offline survival planner</span></h1>
+      <span class="badge">📴 Works with zero internet</span>
+    </div>
+    <p class="story"><b>Day 19</b> of the zombie outbreak. <b>Aarav</b> 🧑 and <b>Mira</b> 👩 must get from the hideout 🏠 to the survivor beacon 📡. No internet, no maps app – just this plan.</p>
+  </header>
+
+  <div id="noRoute" class="noroute" role="alert" hidden>⛔ NO SAFE ROUTE – wait or clear a street</div>
+
+  <main class="layout">
+    <section>
+      <div id="map" class="map" aria-label="City map, 20 by 14 cells"></div>
+      <p class="hint">👆 Tap a street to drop a 🧟 · tap a 🧟 to clear it · the route re-plans instantly</p>
+      <div class="legend" aria-label="Legend">
+        <span>🏠 Hideout</span>
+        <span>📡 Beacon</span>
+        <span>🧟 Zombie</span>
+        <span>🍞 Food cache +3</span>
+        <span>💧 Water cache +3</span>
+        <span>🚩 Meeting point</span>
+        <span><i class="sw st"></i> Street</span>
+        <span><i class="sw bld"></i> Building (blocked)</span>
+        <span><i class="sw d2"></i> Dark red: 1 step from 🧟</span>
+        <span><i class="sw d1"></i> Light red: 2 steps from 🧟</span>
+        <span><i class="sw dotsw"></i> Safest route</span>
+        <span><i class="sw ghostsw"></i> Old route</span>
+        <span><i class="sw goldsw"></i> Detour cache</span>
+      </div>
+    </section>
+
+    <aside>
+      <div class="actions">
+        <button id="btnHorde" class="btn btn-horde" type="button">🚨 Sudden horde</button>
+        <button id="btnReset" class="btn btn-reset" type="button">↺ Reset city</button>
+      </div>
+
+      <div class="card">
+        <div class="ct">Survival chance</div>
+        <div id="surv" class="surv">--</div>
+        <div id="routeInfo" class="routeinfo"></div>
+        <div id="compare" class="compare" hidden></div>
+      </div>
+
+      <div class="card">
+        <div class="ct">Decision</div>
+        <div id="decision" class="decision"></div>
+      </div>
+
+      <div class="card">
+        <div class="ct">Supplies</div>
+        <div class="sup-row">
+          <span class="sup-name">🍞 Food</span>
+          <div class="stepper">
+            <button class="mini" type="button" data-res="food" data-d="-1" aria-label="Less food">−</button>
+            <span id="foodVal" class="sup-val">5</span>
+            <button class="mini" type="button" data-res="food" data-d="1" aria-label="More food">+</button>
+          </div>
+        </div>
+        <div class="sup-row">
+          <span class="sup-name">💧 Water</span>
+          <div class="stepper">
+            <button class="mini" type="button" data-res="water" data-d="-1" aria-label="Less water">−</button>
+            <span id="waterVal" class="sup-val">6</span>
+            <button class="mini" type="button" data-res="water" data-d="1" aria-label="More water">+</button>
+          </div>
+        </div>
+        <div class="sup-rule">Walking uses 1 🍞 every 8 steps and 1 💧 every 6 steps. Each cache gives +3.</div>
+        <div id="arrive" class="arrive"></div>
+      </div>
+
+      <div class="card">
+        <div class="ct">Next moves</div>
+        <div id="moves" class="moves"></div>
+      </div>
+    </aside>
+  </main>
+
+  <footer>BEACON runs 100% inside this one file · A* route planning · no internet, no libraries</footer>
+</div>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ============ 1. FIXED HAND-MADE CITY ============
+     H = hideout, B = beacon, # = building, . = street,
+     Z = zombie, F = food cache, W = water cache          */
+  var COLS = 20, ROWS = 14, N = COLS * ROWS;
+  var MAP = [
+    "H...................",
+    ".###.####W##.###.##.",
+    ".###.#######Z###Z##.",
+    ".....##############.",
+    ".###.#########......",
+    ".###.#########.#.##.",
+    ".###.......###.#Z##Z",
+    ".Z########.###.#####",
+    ".#########.###.#####",
+    ".####....#.###......",
+    ".F###.W#.#.#F######.",
+    ".####.##.#..........",
+    ".##Z#.##.#######.##.",
+    "......##...........B"
+  ];
+
+  var START_FOOD = 5, START_WATER = 6;
+  var FOOD_EVERY = 8, WATER_EVERY = 6, CACHE_GAIN = 3, MAX_SUPPLY = 20;
+  var DIRS = [[1, 0], [0, 1], [-1, 0], [0, -1]];
+
+  var wall = [], baseZombies = [], caches = [], cacheAt = {}, START = 0, GOAL = 0;
+  for (var y = 0; y < ROWS; y++) {
+    for (var x = 0; x < COLS; x++) {
+      var ch = MAP[y].charAt(x), i = y * COLS + x;
+      wall[i] = (ch === "#");
+      if (ch === "H") START = i;
+      if (ch === "B") GOAL = i;
+      if (ch === "Z") baseZombies.push(i);
+      if (ch === "F" || ch === "W") {
+        var c = { i: i, t: ch === "F" ? "food" : "water" };
+        caches.push(c); cacheAt[i] = c;
+      }
+    }
+  }
+
+  // every order of every group of caches (for supply detours)
+  var SEQS = [];
+  (function gen(prefix, rest) {
+    if (prefix.length) SEQS.push(prefix);
+    rest.forEach(function (c, k) {
+      gen(prefix.concat([c]), rest.filter(function (_, j) { return j !== k; }));
+    });
+  })([], caches);
+  SEQS.sort(function (a, b) { return a.length - b.length; });
+
+  var state = {
+    z: new Set(baseZombies),
+    food: START_FOOD, water: START_WATER,
+    danger: [], plan: null,
+    ghost: null, compare: null, dropped: null,
+    last: "start"
+  };
+
+  /* ============ 2. DANGER ZONES ============ */
+  function computeDanger() {
+    var d = new Array(N).fill(0);
+    state.z.forEach(function (zi) {
+      var zx = zi % COLS, zy = (zi / COLS) | 0;
+      for (var dy = -2; dy <= 2; dy++) for (var dx = -2; dx <= 2; dx++) {
+        var m = Math.abs(dx) + Math.abs(dy);
+        if (m > 2) continue;
+        var nx = zx + dx, ny = zy + dy;
+        if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+        var j = ny * COLS + nx, lv = m === 0 ? 3 : (m === 1 ? 2 : 1);
+        if (lv > d[j]) d[j] = lv;
+      }
+    });
+    state.danger = d;
+  }
+  function stepCost(i) { var d = state.danger[i]; return d === 2 ? 8 : (d === 1 ? 4 : 1); }
+  function passable(i) { return !wall[i] && !state.z.has(i); }
+
+  /* ============ 3. A* SAFEST ROUTE ============ */
+  function astar(s, g) {
+    if (!passable(s) || !passable(g)) return null;
+    var G = new Array(N).fill(Infinity), from = new Array(N).fill(-1);
+    var closed = new Uint8Array(N), inOpen = new Uint8Array(N);
+    var gx = g % COLS, gy = (g / COLS) | 0;
+    function h(i) { return Math.abs(i % COLS - gx) + Math.abs(((i / COLS) | 0) - gy); }
+    var open = [s]; inOpen[s] = 1; G[s] = 0;
+    var guard = 0;
+    while (open.length && guard++ < 20000) {
+      var bi = 0;
+      for (var k = 1; k < open.length; k++) {
+        var a = open[k], b = open[bi], fa = G[a] + h(a), fb = G[b] + h(b);
+        if (fa < fb || (fa === fb && h(a) < h(b))) bi = k;
+      }
+      var cur = open.splice(bi, 1)[0]; inOpen[cur] = 0;
+      if (cur === g) {
+        var path = [cur], q = cur;
+        while (from[q] !== -1) { q = from[q]; path.push(q); }
+        path.reverse();
+        return { path: path, cost: G[g] };
+      }
+      if (closed[cur]) continue;
+      closed[cur] = 1;
+      var cx = cur % COLS, cy = (cur / COLS) | 0;
+      for (var d = 0; d < 4; d++) {
+        var nx = cx + DIRS[d][0], ny = cy + DIRS[d][1];
+        if (nx < 0 || ny < 0 || nx >= COLS || ny >= ROWS) continue;
+        var n = ny * COLS + nx;
+        if (!passable(n) || closed[n]) continue;
+        var ng = G[cur] + stepCost(n);
+        if (ng < G[n]) {
+          G[n] = ng; from[n] = cur;
+          if (!inOpen[n]) { open.push(n); inOpen[n] = 1; }
+        }
+      }
+    }
+    return null;
+  }
+
+  /* ============ 4. SUPPLIES SIMULATION ============ */
+  function simulate(path) {
+    var f = state.food, w = state.water, got = new Set(), failF = -1, failW = -1;
+    for (var k = 1; k < path.length; k++) {
+      var c = cacheAt[path[k]];
+      if (c && !got.has(c.i)) { got.add(c.i); if (c.t === "food") f += CACHE_GAIN; else w += CACHE_GAIN; }
+      if (k % FOOD_EVERY === 0) f--;
+      if (k % WATER_EVERY === 0) w--;
+      if (f < 0 && failF < 0) failF = k;
+      if (w < 0 && failW < 0) failW = k;
+    }
+    return { ok: failF < 0 && failW < 0, food: f, water: w, failF: failF, failW: failW, got: got };
+  }
+
+  function stats(path) {
+    var dark = 0, light = 0;
+    for (var k = 1; k < path.length; k++) {
+      var d = state.danger[path[k]];
+      if (d === 2) dark++; else if (d === 1) light++;
+    }
+    var steps = path.length - 1;
+    var s = 100 - 6 * dark - 3 * light - Math.floor(steps / 5);
+    return { steps: steps, dark: dark, light: light, surv: Math.max(5, Math.min(99, s)) };
+  }
+
+  /* ============ 5. FULL PLAN (route + supply detour) ============ */
+  function makePlan() {
+    computeDanger();
+    var memo = {};
+    function seg(a, b) { var key = a + ">" + b; if (!(key in memo)) memo[key] = astar(a, b); return memo[key]; }
+
+    var direct = seg(START, GOAL);
+    if (!direct) return { status: "none", route: null };
+
+    var dSteps = direct.path.length - 1;
+    var need = { food: Math.floor(dSteps / FOOD_EVERY), water: Math.floor(dSteps / WATER_EVERY) };
+    var dSim = simulate(direct.path);
+    var P;
+
+    if (dSim.ok) {
+      P = { status: "ok", route: direct.path, sim: dSim, seq: [] };
+    } else {
+      var best = null;
+      for (var s = 0; s < SEQS.length; s++) {
+        var seq = SEQS[s], pts = [START].concat(seq.map(function (c) { return c.i; }), [GOAL]);
+        var full = [START], cost = 0, okRoute = true;
+        for (var k = 0; k < pts.length - 1; k++) {
+          var r = seg(pts[k], pts[k + 1]);
+          if (!r) { okRoute = false; break; }
+          full = full.concat(r.path.slice(1)); cost += r.cost;
+        }
+        if (!okRoute) continue;
+        var sim = simulate(full);
+        if (!sim.ok) continue;
+        if (!best || cost < best.cost) best = { path: full, cost: cost, seq: seq, sim: sim };
+      }
+      if (best) P = { status: "detour", route: best.path, sim: best.sim, seq: best.seq };
+      else P = { status: "nosupply", route: direct.path, sim: dSim, seq: [] };
+    }
+    P.need = need;
+    P.short = { food: dSim.failF >= 0, water: dSim.failW >= 0 };
+    var st = stats(P.route);
+    P.steps = st.steps; P.dark = st.dark; P.light = st.light; P.surv = st.surv;
+    P.meetK = Math.floor(P.steps / 2);
+    P.meet = P.route[P.meetK];
+    return P;
+  }
+
+  /* ============ 6. RENDER ============ */
+  var $ = function (id) { return document.getElementById(id); };
+  var mapEl = $("map"), cells = [];
+  for (var ci = 0; ci < N; ci++) {
+    var el = document.createElement("div");
+    el.dataset.i = ci;
+    cells.push(el); mapEl.appendChild(el);
+  }
+
+  function icon(t) { return t === "food" ? "🍞" : "💧"; }
+  function survClass(v) { return v >= 70 ? "c-good" : (v >= 40 ? "c-warn" : "c-bad"); }
+
+  function renderMap() {
+    var P = state.plan, d = state.danger;
+    var routeK = new Map();
+    if (P.route) P.route.forEach(function (c, k) { if (!routeK.has(c)) routeK.set(c, k); });
+    var ghost = new Set(state.ghost || []);
+    var targets = new Set((P.seq || []).map(function (c) { return c.i; }));
+    var dropped = new Set(state.dropped || []);
+
+    for (var i = 0; i < N; i++) {
+      var cls = "cell", html = "", tip = "";
+      if (wall[i]) { cls += " bld"; tip = "Building – blocked"; }
+      else if (state.z.has(i)) {
+        cls += " st zc" + (dropped.has(i) ? " drop" : "");
+        html = (ghost.has(i) ? '<i class="ghost"></i>' : "") + '<span class="em">🧟</span>';
+        tip = "Zombie – click to clear it";
+      } else {
+        cls += " st";
+        if (d[i] === 2) cls += " d2"; else if (d[i] === 1) cls += " d1";
+        var em = "";
+        if (i === START) { cls += " home"; em = "🏠"; tip = "Hideout"; }
+        else if (i === GOAL) { cls += " goal"; em = "📡"; tip = "Survivor beacon"; }
+        else if (cacheAt[i]) { em = icon(cacheAt[i].t); tip = (cacheAt[i].t === "food" ? "Food" : "Water") + " cache (+3)"; }
+        else tip = d[i] === 2 ? "Dark red – 1 step from a zombie" : (d[i] === 1 ? "Light red – 2 steps from a zombie" : "Street – click to drop a zombie");
+        if (i !== START && i !== GOAL) {
+          if (routeK.has(i)) html += '<i class="dot" style="animation-delay:' + (routeK.get(i) * 45) + 'ms"></i>';
+          else if (ghost.has(i)) html += '<i class="ghost"></i>';
+        }
+        if (em) html += '<span class="em">' + em + "</span>";
+        if (targets.has(i)) cls += " target";
+        if (P.route && P.meet === i && i !== START && i !== GOAL) html += '<span class="flag">🚩</span>';
+      }
+      cells[i].className = cls;
+      cells[i].innerHTML = html;
+      cells[i].title = tip;
+    }
+  }
+
+  var PREFIX = {
+    start: "Safest route", reset: "City reset", horde: "Horde blocked route",
+    add: "New 🧟 on the street", remove: "Street cleared", supplies: "Supplies changed"
+  };
+
+  function dirsText(path) {
+    var runs = [];
+    for (var k = 1; k < path.length; k++) {
+      var a = path[k - 1], b = path[k], dx = (b % COLS) - (a % COLS), dy = ((b / COLS) | 0) - ((a / COLS) | 0);
+      var dir = dx === 1 ? "E" : dx === -1 ? "W" : dy === 1 ? "S" : "N";
+      if (runs.length && runs[runs.length - 1].d === dir) runs[runs.length - 1].n++;
+      else runs.push({ d: dir, n: 1 });
+    }
+    if (!runs.length) return "already there";
+    var A = { E: "➡️", W: "⬅️", S: "⬇️", N: "⬆️" }, W = { E: "east", W: "west", S: "south", N: "north" };
+    var out = runs.slice(0, 4).map(function (r) { return A[r.d] + " " + r.n + " " + W[r.d]; }).join(", ");
+    return out + (runs.length > 4 ? ", …" : "");
+  }
+
+  function legNote(leg, P) {
+    var red = 0, notes = [];
+    for (var k = 1; k < leg.length; k++) if (state.danger[leg[k]] >= 1) red++;
+    (P.seq || []).forEach(function (c) { if (leg.slice(1).indexOf(c.i) !== -1) notes.push("grab " + icon(c.t)); });
+    if (red) notes.push("⚠️ " + red + " red cell" + (red > 1 ? "s" : "") + " – fast & silent");
+    else notes.push("✅ no red cells");
+    return " · " + notes.join(" · ");
+  }
+
+  function renderPanel() {
+    var P = state.plan;
+
+    // survival
+    var survEl = $("surv");
+    if (!P.route) {
+      survEl.textContent = "--"; survEl.className = "surv c-bad";
+      $("routeInfo").innerHTML = "⛔ No path to the beacon right now.";
+    } else {
+      survEl.textContent = P.surv + "%"; survEl.className = "surv " + survClass(P.surv);
+      var extra = P.status === "detour" ? " · includes " + P.seq.map(function (c) { return icon(c.t); }).join("+") + " detour" : "";
+      $("routeInfo").innerHTML = "🔵 Safest route: <b>" + P.steps + "</b> steps · " + P.dark + " dark-red · " + P.light + " light-red" + extra;
+    }
+
+    // old vs new comparison (after a horde)
+    var cmp = $("compare");
+    if (state.compare) {
+      var o = state.compare;
+      if (P.route) {
+        var diff = P.steps - o.steps;
+        cmp.innerHTML = "Old: " + o.steps + " steps, " + o.surv + "% → New: " + P.steps + " steps, " + P.surv + "% (" + (diff >= 0 ? "+" : "") + diff + " steps)";
+      } else {
+        cmp.innerHTML = "Old: " + o.steps + " steps, " + o.surv + "% → New: no route ❌";
+      }
+      cmp.hidden = false;
+    } else cmp.hidden = true;
+
+    // decision
+    var dec = $("decision"), pre = PREFIX[state.last] || "Safest route", rw = state.last === "horde" ? "new route" : "route";
+    var F = state.food, Wt = state.water, cls = "decision", html;
+    if (!P.route) {
+      cls += " bad"; html = pre + " → no path to 📡 ❌ → stay in 🏠 and clear a street";
+    } else if (P.status === "ok") {
+      html = pre + " → " + rw + " needs " + P.need.food + " food, " + P.need.water + " water · you have " + F + " & " + Wt + " ✅";
+    } else {
+      var needTxt, haveTxt;
+      if (P.short.food && P.short.water) { needTxt = P.need.food + " food & " + P.need.water + " water"; haveTxt = F + " & " + Wt; }
+      else if (P.short.food) { needTxt = P.need.food + " food"; haveTxt = "" + F; }
+      else { needTxt = P.need.water + " water"; haveTxt = "" + Wt; }
+      if (P.status === "detour") {
+        cls += " warn";
+        var via = P.seq.map(function (c) { return icon(c.t); }).join(" + ") + (P.seq.length > 1 ? " caches" : " cache");
+        html = pre + " → " + rw + " needs " + needTxt + ", you have " + haveTxt + " ❌ → detour via " + via + " ✅";
+      } else {
+        cls += " bad";
+        html = '<div class="big-bad">NOT ENOUGH SUPPLIES – ration or wait</div><div class="sub">' + pre + " → " + rw + " needs " + needTxt + ", you have " + haveTxt + " ❌ · no cache detour is enough</div>";
+      }
+    }
+    dec.className = cls; dec.innerHTML = html;
+
+    // supplies
+    $("foodVal").textContent = F; $("waterVal").textContent = Wt;
+    var arr = $("arrive");
+    if (!P.route) { arr.innerHTML = "Arrive with — (no route yet)"; arr.style.color = "var(--muted)"; }
+    else if (P.status === "nosupply") {
+      var outs = [];
+      if (P.sim.failF >= 0) outs.push("🍞 runs out at step " + P.sim.failF);
+      if (P.sim.failW >= 0) outs.push("💧 runs out at step " + P.sim.failW);
+      arr.innerHTML = "❌ " + outs.join(" · "); arr.style.color = "var(--red)";
+    } else {
+      arr.innerHTML = "Arrive with <b>" + P.sim.food + "</b> food, <b>" + P.sim.water + "</b> water";
+      arr.style.color = (P.sim.food === 0 || P.sim.water === 0) ? "var(--orange)" : "var(--green)";
+    }
+
+    // next moves
+    var mv = $("moves");
+    if (!P.route) {
+      mv.innerHTML =
+        "<div>🧑 <b>Aarav</b>: stay inside 🏠 and watch the street for a gap.</div>" +
+        "<div>👩 <b>Mira</b>: ration supplies and get ready to move the moment a street clears.</div>" +
+        '<div class="meet">🚩 No meeting point – nobody leaves yet.</div>';
+    } else {
+      var leg1 = P.route.slice(0, P.meetK + 1), leg2 = P.route.slice(P.meetK);
+      mv.innerHTML =
+        "<div>🧑 <b>Aarav</b> leads 🏠→🚩: " + dirsText(leg1) + legNote(leg1, P) + "</div>" +
+        "<div>👩 <b>Mira</b> guards the rear, then leads 🚩→📡: " + dirsText(leg2) + legNote(leg2, P) + "</div>" +
+        '<div class="meet">🚩 If separated, meet at 🚩 (step ' + P.meetK + " of " + P.steps + ", marked on the map)</div>";
+    }
+
+    $("noRoute").hidden = !!P.route;
+  }
+
+  function update() { state.plan = makePlan(); renderMap(); renderPanel(); }
+
+  /* ============ 7. MESSAGES & EFFECTS ============ */
+  var toastTimer = null;
+  function toast(msg) {
+    var t = $("toast");
+    t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { t.classList.remove("show"); }, 2200);
+  }
+  function flash() {
+    var f = $("flash");
+    f.classList.remove("on"); void f.offsetWidth; f.classList.add("on");
+  }
+  var bannerTimer = null;
+  function showHordeBanner() {
+    var b = $("hordeBanner");
+    b.hidden = false;
+    clearTimeout(bannerTimer);
+    bannerTimer = setTimeout(function () { b.hidden = true; }, 2600);
+  }
+  function safe(fn) {
+    return function () {
+      try { fn.apply(this, arguments); }
+      catch (err) {
+        if (window.console) console.error(err);
+        toast("⚠️ Glitch handled – try again or press ↺ Reset city");
+      }
+    };
+  }
+  window.addEventListener("error", function () { toast("⚠️ Something went wrong – press ↺ Reset city"); });
+
+  /* ============ 8. ACTIONS ============ */
+  function onCell(i) {
+    if (wall[i]) { toast("🏚️ Building – blocked. Tap a street instead."); return; }
+    if (i === START) { toast("🏠 The hideout – Aarav & Mira start here."); return; }
+    if (i === GOAL) { toast("📡 The beacon – zombies can't take it."); return; }
+    if (cacheAt[i]) { toast(icon(cacheAt[i].t) + " Supply cache – keep it clear (+3 when collected)."); return; }
+    if (state.z.has(i)) { state.z.delete(i); state.last = "remove"; toast("🧟 cleared – route re-planned"); }
+    else { state.z.add(i); state.last = "add"; toast("🧟 added – route re-planned"); }
+    state.ghost = null; state.compare = null; state.dropped = null;
+    update();
+  }
+
+  function horde() {
+    var P = state.plan;
+    if (!P || !P.route) { toast("No route to block – the city is already sealed. Clear a 🧟 first."); return; }
+    var path = P.route, mid = Math.floor((path.length - 1) / 2), seen = new Set(), cand = [];
+    for (var k = 1; k < path.length - 1; k++) {
+      var c = path[k];
+      if (seen.has(c)) continue;
+      seen.add(c);
+      if (c === START || c === GOAL || cacheAt[c] || state.z.has(c)) continue;
+      cand.push({ c: c, k: k });
+    }
+    cand.sort(function (a, b) { return Math.abs(a.k - mid) - Math.abs(b.k - mid) || a.k - b.k; });
+    var drop = cand.slice(0, 4).map(function (o) { return o.c; });
+    if (!drop.length) { toast("Route too short – a horde can't block it."); return; }
+
+    state.compare = { steps: P.steps, surv: P.surv };
+    state.ghost = path.slice();
+    drop.forEach(function (c) { state.z.add(c); });
+    state.dropped = drop;
+    state.last = "horde";
+    flash();
+    showHordeBanner();
+    update();
+    if (!state.plan.route) toast("⛔ The horde sealed every street!");
+  }
+
+  function reset() {
+    state.z = new Set(baseZombies);
+    state.food = START_FOOD; state.water = START_WATER;
+    state.ghost = null; state.compare = null; state.dropped = null;
+    state.last = "reset";
+    $("hordeBanner").hidden = true;
+    update();
+    toast("↺ City reset – Day 19, fresh start");
+  }
+
+  function changeSupply(res, delta) {
+    var v = state[res] + delta;
+    if (v < 0) { toast("Can't go below 0."); return; }
+    if (v > MAX_SUPPLY) { toast("Backpack full – max " + MAX_SUPPLY + "."); return; }
+    state[res] = v; state.last = "supplies"; state.dropped = null;
+    update();
+  }
+
+  mapEl.addEventListener("click", safe(function (e) {
+    var c = e.target.closest(".cell");
+    if (c) onCell(+c.dataset.i);
+  }));
+  $("btnHorde").addEventListener("click", safe(horde));
+  $("btnReset").addEventListener("click", safe(reset));
+  Array.prototype.forEach.call(document.querySelectorAll(".mini"), function (b) {
+    b.addEventListener("click", safe(function () { changeSupply(b.dataset.res, +b.dataset.d); }));
+  });
+
+  // test hook (harmless): lets you inspect the current plan in the browser console
+  window.BEACON = { state: state, replan: update };
+
+  safe(update)();
+})();
+</script>
+</body>
+</html>
